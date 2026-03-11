@@ -222,5 +222,5 @@ func stringifyPanic(p interface{}) string {
 	if s, ok := p.(string); ok {
 		return s
 	}
-	return string("panic")
+	return "panic"
 }
