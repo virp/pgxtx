@@ -39,8 +39,7 @@ func TestIsSerializationError(t *testing.T) {
 
 func TestTxFromContext(t *testing.T) {
 	t.Run("no transaction in context", func(t *testing.T) {
-		ctx := context.Background()
-		tx := TxFromContext(ctx)
+		tx := TxFromContext(t.Context())
 		assert.Nil(t, tx)
 	})
 
@@ -48,7 +47,7 @@ func TestTxFromContext(t *testing.T) {
 		// We can't create a real pgx.Tx without a database connection,
 		// but we can test that the context mechanism works with an interface
 		// Using raw context value since TxToContext expects pgx.Tx
-		ctx := context.WithValue(context.Background(), txContextKey, "mock-tx")
+		ctx := context.WithValue(t.Context(), txContextKey, "mock-tx")
 		retrieved := ctx.Value(txContextKey)
 		assert.Equal(t, "mock-tx", retrieved)
 	})
@@ -56,14 +55,13 @@ func TestTxFromContext(t *testing.T) {
 
 func TestHasTransaction(t *testing.T) {
 	t.Run("no transaction", func(t *testing.T) {
-		ctx := context.Background()
-		assert.False(t, HasTransaction(ctx))
+		assert.False(t, HasTransaction(t.Context()))
 	})
 
 	t.Run("has transaction", func(t *testing.T) {
 		// Test that HasTransaction works when value is in context
 		// We test the mechanism rather than the specific type
-		ctx := context.WithValue(context.Background(), txContextKey, "mock-tx")
+		ctx := context.WithValue(t.Context(), txContextKey, "mock-tx")
 		// Direct check since TxFromContext does type assertion
 		assert.NotNil(t, ctx.Value(txContextKey))
 	})
@@ -71,10 +69,9 @@ func TestHasTransaction(t *testing.T) {
 
 func TestWithRetry(t *testing.T) {
 	t.Run("success on first attempt", func(t *testing.T) {
-		ctx := context.Background()
 		attempts := 0
 
-		err := WithRetry(ctx, RetryConfig{MaxRetries: 3}, func(ctx context.Context) error {
+		err := WithRetry(t.Context(), RetryConfig{MaxRetries: 3}, func(ctx context.Context) error {
 			attempts++
 			return nil
 		})
@@ -84,10 +81,9 @@ func TestWithRetry(t *testing.T) {
 	})
 
 	t.Run("retry on serialization error", func(t *testing.T) {
-		ctx := context.Background()
 		attempts := 0
 
-		err := WithRetry(ctx, RetryConfig{
+		err := WithRetry(t.Context(), RetryConfig{
 			MaxRetries:      3,
 			InitialInterval: 1 * time.Millisecond,
 			MaxInterval:     10 * time.Millisecond,
@@ -104,11 +100,10 @@ func TestWithRetry(t *testing.T) {
 	})
 
 	t.Run("no retry on other errors", func(t *testing.T) {
-		ctx := context.Background()
 		attempts := 0
 		expectedErr := errors.New("non-retryable error")
 
-		err := WithRetry(ctx, RetryConfig{MaxRetries: 3}, func(ctx context.Context) error {
+		err := WithRetry(t.Context(), RetryConfig{MaxRetries: 3}, func(ctx context.Context) error {
 			attempts++
 			return expectedErr
 		})
@@ -118,10 +113,9 @@ func TestWithRetry(t *testing.T) {
 	})
 
 	t.Run("max retries exceeded", func(t *testing.T) {
-		ctx := context.Background()
 		attempts := 0
 
-		err := WithRetry(ctx, RetryConfig{
+		err := WithRetry(t.Context(), RetryConfig{
 			MaxRetries:      2,
 			InitialInterval: 1 * time.Millisecond,
 			MaxInterval:     10 * time.Millisecond,
@@ -135,7 +129,7 @@ func TestWithRetry(t *testing.T) {
 	})
 
 	t.Run("context cancellation", func(t *testing.T) {
-		ctx, cancel := context.WithCancel(context.Background())
+		ctx, cancel := context.WithCancel(t.Context())
 		attempts := 0
 
 		cancel() // Cancel immediately
