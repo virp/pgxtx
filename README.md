@@ -123,29 +123,111 @@ func NewUserRepository(tm *pgxtx.TxManager) *UserRepository {
 }
 
 func (r *UserRepository) Create(ctx context.Context, name, email string) error {
-    return tm.ExecInTx(ctx, func(ctx context.Context, exec pgxtx.Executor) error {
-        _, err := exec.Exec(ctx, 
-            "INSERT INTO users (name, email, created_at) VALUES ($1, $2, NOW())",
-            name, email,
-        )
-        return err
-    })
+    // GetExecutor returns the transaction from context if present,
+    // or the pool if no transaction exists
+    exec := r.tm.GetExecutor(ctx)
+
+    _, err := exec.Exec(ctx,
+        "INSERT INTO users (name, email, created_at) VALUES ($1, $2, NOW())",
+        name, email,
+    )
+    return err
 }
 
 func (r *UserRepository) GetByID(ctx context.Context, id int) (*User, error) {
-    // ExecInTx will use existing transaction if present,
-    // or execute without transaction if not
+    exec := r.tm.GetExecutor(ctx)
+
     var user User
-    err := tm.ExecInTx(ctx, func(ctx context.Context, exec pgxtx.Executor) error {
-        return exec.QueryRow(ctx, 
-            "SELECT id, name, email FROM users WHERE id = $1", id,
-        ).Scan(&user.ID, &user.Name, &user.Email)
-    })
+    err := exec.QueryRow(ctx,
+        "SELECT id, name, email FROM users WHERE id = $1", id,
+    ).Scan(&user.ID, &user.Name, &user.Email)
     if err != nil {
         return nil, err
     }
     return &user, nil
 }
+
+func (r *UserRepository) CreateAuditLog(ctx context.Context, fromUserID, toUserID int, amount decimal.Decimal) error {
+    exec := r.tm.GetExecutor(ctx)
+
+    _, err := exec.Exec(ctx,
+        "INSERT INTO audit_log (from_user_id, to_user_id, amount, created_at) VALUES ($1, $2, $3, NOW())",
+        fromUserID, toUserID, amount,
+    )
+    return err
+}
+```
+
+### Service Layer with Multiple Repositories
+
+```go
+type AccountRepository struct {
+    tm *pgxtx.TxManager
+}
+
+func NewAccountRepository(tm *pgxtx.TxManager) *AccountRepository {
+    return &AccountRepository{tm: tm}
+}
+
+func (r *AccountRepository) Debit(ctx context.Context, userID int, amount decimal.Decimal) error {
+    exec := r.tm.GetExecutor(ctx)
+
+    _, err := exec.Exec(ctx,
+        "UPDATE accounts SET balance = balance - $1 WHERE user_id = $2",
+        amount, userID,
+    )
+    return err
+}
+
+func (r *AccountRepository) Credit(ctx context.Context, userID int, amount decimal.Decimal) error {
+    exec := r.tm.GetExecutor(ctx)
+
+    _, err := exec.Exec(ctx,
+        "UPDATE accounts SET balance = balance + $1 WHERE user_id = $2",
+        amount, userID,
+    )
+    return err
+}
+
+// TransferService coordinates operations across multiple repositories
+type TransferService struct {
+    userRepo    *UserRepository
+    accountRepo *AccountRepository
+}
+
+func NewTransferService(userRepo *UserRepository, accountRepo *AccountRepository) *TransferService {
+    return &TransferService{
+        userRepo:    userRepo,
+        accountRepo: accountRepo,
+    }
+}
+
+// Transfer executes a money transfer atomically
+// Both debit and credit operations participate in the same transaction
+func (s *TransferService) Transfer(ctx context.Context, fromUserID, toUserID int, amount decimal.Decimal) error {
+    // Single transaction wraps both repository calls
+    return s.userRepo.tm.WithTx(ctx, func(ctx context.Context) error {
+        // Debit from sender - uses transaction from context
+        if err := s.accountRepo.Debit(ctx, fromUserID, amount); err != nil {
+            return err
+        }
+
+        // Credit to recipient - uses same transaction from context
+        if err := s.accountRepo.Credit(ctx, toUserID, amount); err != nil {
+            return err
+        }
+
+        // Create audit log entry - uses same transaction from context
+        return s.userRepo.CreateAuditLog(ctx, fromUserID, toUserID, amount)
+    })
+}
+
+// Usage:
+// transferService := NewTransferService(userRepo, accountRepo)
+// err := transferService.Transfer(ctx, 1, 2, decimal.NewFromInt(100))
+// if err != nil {
+//     log.Printf("Transfer failed: %v", err) // All operations rolled back
+// }
 ```
 
 ### Context Helpers
