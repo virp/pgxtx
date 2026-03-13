@@ -21,7 +21,7 @@ type Executor interface {
 var _ Executor = (*pgx.Conn)(nil)
 
 // Ensure that pgx.Tx implements Executor.
-var _ Executor = (pgx.Tx)(nil)
+var _ Executor = pgx.Tx(nil)
 
 // TxProvider is an interface for obtaining a database connection.
 // This is typically implemented by pgxpool.Pool.

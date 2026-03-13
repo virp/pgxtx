@@ -71,7 +71,7 @@ func TestWithRetry(t *testing.T) {
 	t.Run("success on first attempt", func(t *testing.T) {
 		attempts := 0
 
-		err := WithRetry(t.Context(), RetryConfig{MaxRetries: 3}, func(ctx context.Context) error {
+		err := WithRetry(t.Context(), RetryConfig{MaxRetries: 3}, func(_ context.Context) error {
 			attempts++
 			return nil
 		})
@@ -87,7 +87,7 @@ func TestWithRetry(t *testing.T) {
 			MaxRetries:      3,
 			InitialInterval: 1 * time.Millisecond,
 			MaxInterval:     10 * time.Millisecond,
-		}, func(ctx context.Context) error {
+		}, func(_ context.Context) error {
 			attempts++
 			if attempts < 3 {
 				return &pgconn.PgError{Code: pgSerializationErrorCode}
@@ -103,7 +103,7 @@ func TestWithRetry(t *testing.T) {
 		attempts := 0
 		expectedErr := errors.New("non-retryable error")
 
-		err := WithRetry(t.Context(), RetryConfig{MaxRetries: 3}, func(ctx context.Context) error {
+		err := WithRetry(t.Context(), RetryConfig{MaxRetries: 3}, func(_ context.Context) error {
 			attempts++
 			return expectedErr
 		})
@@ -119,7 +119,7 @@ func TestWithRetry(t *testing.T) {
 			MaxRetries:      2,
 			InitialInterval: 1 * time.Millisecond,
 			MaxInterval:     10 * time.Millisecond,
-		}, func(ctx context.Context) error {
+		}, func(_ context.Context) error {
 			attempts++
 			return &pgconn.PgError{Code: pgSerializationErrorCode}
 		})
@@ -137,7 +137,7 @@ func TestWithRetry(t *testing.T) {
 		err := WithRetry(ctx, RetryConfig{
 			MaxRetries:      3,
 			InitialInterval: 100 * time.Millisecond,
-		}, func(ctx context.Context) error {
+		}, func(_ context.Context) error {
 			attempts++
 			return &pgconn.PgError{Code: pgSerializationErrorCode}
 		})
@@ -153,5 +153,5 @@ func TestDefaultRetryConfig(t *testing.T) {
 	assert.Equal(t, 3, cfg.MaxRetries)
 	assert.Equal(t, 100*time.Millisecond, cfg.InitialInterval)
 	assert.Equal(t, 1*time.Second, cfg.MaxInterval)
-	assert.Equal(t, 2.0, cfg.Multiplier)
+	assert.InDelta(t, 2.0, cfg.Multiplier, 0.001)
 }

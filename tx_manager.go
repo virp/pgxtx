@@ -88,11 +88,12 @@ func (tm *TxManager) WithTx(ctx context.Context, fn TxFunc) error {
 	if HasTransaction(ctx) {
 		recordNestedTransaction(ctx)
 
-		ctx, span := tm.tracer.Start(ctx, "pgxtx.WithTx.nested",
+		_, span := tm.tracer.Start(ctx, "pgxtx.WithTx.nested",
 			trace.WithSpanKind(trace.SpanKindInternal),
 			trace.WithAttributes(attribute.Bool("pgxtx.transaction.nested", true)),
 		)
 		defer span.End()
+		span.SetStatus(codes.Ok, "nested transaction reused")
 
 		return fn(ctx)
 	}
