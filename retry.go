@@ -95,10 +95,7 @@ func WithRetry(ctx context.Context, config RetryConfig, fn func(ctx context.Cont
 		nextBackoff := b.NextBackOff()
 		if nextBackoff == backoff.Stop {
 			// Use default interval if backoff is stopped
-			nextBackoff = config.InitialInterval * time.Duration(attempt)
-			if nextBackoff > config.MaxInterval {
-				nextBackoff = config.MaxInterval
-			}
+			nextBackoff = min(config.InitialInterval*time.Duration(attempt), config.MaxInterval)
 		}
 
 		// Record retry attempt

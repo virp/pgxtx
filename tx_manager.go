@@ -218,7 +218,7 @@ func (tm *TxManager) ExecInTx(ctx context.Context, fn func(ctx context.Context, 
 }
 
 // stringifyPanic converts a panic value to a string safely.
-func stringifyPanic(p interface{}) string {
+func stringifyPanic(p any) string {
 	if s, ok := p.(string); ok {
 		return s
 	}
