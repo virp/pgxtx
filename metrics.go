@@ -12,9 +12,9 @@ import (
 
 var (
 	// Transaction metrics
-	transactionDuration  metric.Float64Histogram
-	transactionTotal     metric.Int64Counter
-	nestedTransactionTot metric.Int64Counter
+	transactionDuration    metric.Float64Histogram
+	transactionTotal       metric.Int64Counter
+	nestedTransactionTotal metric.Int64Counter
 
 	// Retry metrics
 	retryTotal        metric.Int64Counter
@@ -56,7 +56,7 @@ func init() {
 	}
 
 	// Nested transaction counter
-	nestedTransactionTot, err = meter.Int64Counter(
+	nestedTransactionTotal, err = meter.Int64Counter(
 		"pgxtx_nested_transaction_total",
 		metric.WithDescription("Total number of nested database transaction calls"),
 		metric.WithUnit("1"),
@@ -108,7 +108,7 @@ func recordTransactionTotal(ctx context.Context, status attribute.KeyValue) {
 
 // recordNestedTransaction increments the nested transaction counter.
 func recordNestedTransaction(ctx context.Context) {
-	nestedTransactionTot.Add(ctx, 1)
+	nestedTransactionTotal.Add(ctx, 1)
 }
 
 // recordRetry increments the retry counter with the given status.
