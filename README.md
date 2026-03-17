@@ -22,7 +22,7 @@ go get github.com/virp/pgxtx
 
 - Go 1.26+
 - [`github.com/jackc/pgx/v5`](https://github.com/jackc/pgx/v5)
-- [`go.opentelemetry.io/otel`](https://github.com/open-telemetry/opentelemetry-go) (optional, for tracing)
+- [`go.opentelemetry.io/otel`](https://github.com/open-telemetry/opentelemetry-go)
 
 ## Usage Examples
 
@@ -191,12 +191,14 @@ func (r *AccountRepository) Credit(ctx context.Context, userID int, amount decim
 
 // TransferService coordinates operations across multiple repositories
 type TransferService struct {
+    tm          *pgxtx.TxManager
     userRepo    *UserRepository
     accountRepo *AccountRepository
 }
 
-func NewTransferService(userRepo *UserRepository, accountRepo *AccountRepository) *TransferService {
+func NewTransferService(tm *pgxtx.TxManager, userRepo *UserRepository, accountRepo *AccountRepository) *TransferService {
     return &TransferService{
+        tm:          tm,
         userRepo:    userRepo,
         accountRepo: accountRepo,
     }
@@ -206,7 +208,7 @@ func NewTransferService(userRepo *UserRepository, accountRepo *AccountRepository
 // Both debit and credit operations participate in the same transaction
 func (s *TransferService) Transfer(ctx context.Context, fromUserID, toUserID int, amount decimal.Decimal) error {
     // Single transaction wraps both repository calls
-    return s.userRepo.tm.WithTx(ctx, func(ctx context.Context) error {
+    return s..tm.WithTx(ctx, func(ctx context.Context) error {
         // Debit from sender - uses transaction from context
         if err := s.accountRepo.Debit(ctx, fromUserID, amount); err != nil {
             return err
@@ -223,7 +225,7 @@ func (s *TransferService) Transfer(ctx context.Context, fromUserID, toUserID int
 }
 
 // Usage:
-// transferService := NewTransferService(userRepo, accountRepo)
+// transferService := NewTransferService(tm, userRepo, accountRepo)
 // err := transferService.Transfer(ctx, 1, 2, decimal.NewFromInt(100))
 // if err != nil {
 //     log.Printf("Transfer failed: %v", err) // All operations rolled back
