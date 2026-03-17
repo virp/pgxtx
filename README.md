@@ -208,7 +208,7 @@ func NewTransferService(tm *pgxtx.TxManager, userRepo *UserRepository, accountRe
 // Both debit and credit operations participate in the same transaction
 func (s *TransferService) Transfer(ctx context.Context, fromUserID, toUserID int, amount decimal.Decimal) error {
     // Single transaction wraps both repository calls
-    return s..tm.WithTx(ctx, func(ctx context.Context) error {
+    return s.tm.WithTx(ctx, func(ctx context.Context) error {
         // Debit from sender - uses transaction from context
         if err := s.accountRepo.Debit(ctx, fromUserID, amount); err != nil {
             return err
