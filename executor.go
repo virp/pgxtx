@@ -17,11 +17,35 @@ type Executor interface {
 	QueryRow(ctx context.Context, sql string, args ...any) pgx.Row
 }
 
+// ExecutorProvider provides an Executor for the given context.
+// Repositories should typically depend on this interface instead of *TxManager.
+type ExecutorProvider interface {
+	GetExecutor(ctx context.Context) Executor
+}
+
+// TxRunner executes work in a transaction-aware way.
+// Services that coordinate multiple repositories should typically depend on this interface.
+type TxRunner interface {
+	WithTx(ctx context.Context, fn TxFunc) error
+	ExecInTx(ctx context.Context, fn func(ctx context.Context, exec Executor) error) error
+}
+
+// Manager combines transaction execution and executor lookup.
+type Manager interface {
+	ExecutorProvider
+	TxRunner
+}
+
 // Ensure that pgx.Conn implements Executor.
 var _ Executor = (*pgx.Conn)(nil)
 
 // Ensure that pgx.Tx implements Executor.
 var _ Executor = pgx.Tx(nil)
+
+// Ensure that TxManager implements the public interfaces.
+var _ ExecutorProvider = (*TxManager)(nil)
+var _ TxRunner = (*TxManager)(nil)
+var _ Manager = (*TxManager)(nil)
 
 // TxProvider is an interface for obtaining a database connection.
 // This is typically implemented by pgxpool.Pool.
