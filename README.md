@@ -111,21 +111,21 @@ err := tm.WithTx(ctx, func(ctx context.Context) error {
 })
 ```
 
-### Repository Pattern with Executor
+### Repository Pattern with ExecutorProvider
 
 ```go
 type UserRepository struct {
-    tm *pgxtx.TxManager
+    ep pgxtx.ExecutorProvider
 }
 
-func NewUserRepository(tm *pgxtx.TxManager) *UserRepository {
-    return &UserRepository{tm: tm}
+func NewUserRepository(ep pgxtx.ExecutorProvider) *UserRepository {
+    return &UserRepository{ep: ep}
 }
 
 func (r *UserRepository) Create(ctx context.Context, name, email string) error {
     // GetExecutor returns the transaction from context if present,
     // or the pool if no transaction exists
-    exec := r.tm.GetExecutor(ctx)
+    exec := r.ep.GetExecutor(ctx)
 
     _, err := exec.Exec(ctx,
         "INSERT INTO users (name, email, created_at) VALUES ($1, $2, NOW())",
@@ -135,7 +135,7 @@ func (r *UserRepository) Create(ctx context.Context, name, email string) error {
 }
 
 func (r *UserRepository) GetByID(ctx context.Context, id int) (*User, error) {
-    exec := r.tm.GetExecutor(ctx)
+    exec := r.ep.GetExecutor(ctx)
 
     var user User
     err := exec.QueryRow(ctx,
@@ -148,7 +148,7 @@ func (r *UserRepository) GetByID(ctx context.Context, id int) (*User, error) {
 }
 
 func (r *UserRepository) CreateAuditLog(ctx context.Context, fromUserID, toUserID int, amount decimal.Decimal) error {
-    exec := r.tm.GetExecutor(ctx)
+    exec := r.ep.GetExecutor(ctx)
 
     _, err := exec.Exec(ctx,
         "INSERT INTO audit_log (from_user_id, to_user_id, amount, created_at) VALUES ($1, $2, $3, NOW())",
@@ -162,15 +162,15 @@ func (r *UserRepository) CreateAuditLog(ctx context.Context, fromUserID, toUserI
 
 ```go
 type AccountRepository struct {
-    tm *pgxtx.TxManager
+    ep pgxtx.ExecutorProvider
 }
 
-func NewAccountRepository(tm *pgxtx.TxManager) *AccountRepository {
-    return &AccountRepository{tm: tm}
+func NewAccountRepository(ep pgxtx.ExecutorProvider) *AccountRepository {
+    return &AccountRepository{ep: ep}
 }
 
 func (r *AccountRepository) Debit(ctx context.Context, userID int, amount decimal.Decimal) error {
-    exec := r.tm.GetExecutor(ctx)
+    exec := r.ep.GetExecutor(ctx)
 
     _, err := exec.Exec(ctx,
         "UPDATE accounts SET balance = balance - $1 WHERE user_id = $2",
@@ -180,7 +180,7 @@ func (r *AccountRepository) Debit(ctx context.Context, userID int, amount decima
 }
 
 func (r *AccountRepository) Credit(ctx context.Context, userID int, amount decimal.Decimal) error {
-    exec := r.tm.GetExecutor(ctx)
+    exec := r.ep.GetExecutor(ctx)
 
     _, err := exec.Exec(ctx,
         "UPDATE accounts SET balance = balance + $1 WHERE user_id = $2",
@@ -191,14 +191,14 @@ func (r *AccountRepository) Credit(ctx context.Context, userID int, amount decim
 
 // TransferService coordinates operations across multiple repositories
 type TransferService struct {
-    tm          *pgxtx.TxManager
+    tr          pgxtx.TxRunner
     userRepo    *UserRepository
     accountRepo *AccountRepository
 }
 
-func NewTransferService(tm *pgxtx.TxManager, userRepo *UserRepository, accountRepo *AccountRepository) *TransferService {
+func NewTransferService(tr *pgxtx.TxRunner, userRepo *UserRepository, accountRepo *AccountRepository) *TransferService {
     return &TransferService{
-        tm:          tm,
+        tr:          tr,
         userRepo:    userRepo,
         accountRepo: accountRepo,
     }
@@ -208,7 +208,7 @@ func NewTransferService(tm *pgxtx.TxManager, userRepo *UserRepository, accountRe
 // Both debit and credit operations participate in the same transaction
 func (s *TransferService) Transfer(ctx context.Context, fromUserID, toUserID int, amount decimal.Decimal) error {
     // Single transaction wraps both repository calls
-    return s.tm.WithTx(ctx, func(ctx context.Context) error {
+    return s.tr.WithTx(ctx, func(ctx context.Context) error {
         // Debit from sender - uses transaction from context
         if err := s.accountRepo.Debit(ctx, fromUserID, amount); err != nil {
             return err
@@ -225,11 +225,64 @@ func (s *TransferService) Transfer(ctx context.Context, fromUserID, toUserID int
 }
 
 // Usage:
-// transferService := NewTransferService(tm, userRepo, accountRepo)
+// transferService := NewTransferService(tr, userRepo, accountRepo)
 // err := transferService.Transfer(ctx, 1, 2, decimal.NewFromInt(100))
 // if err != nil {
 //     log.Printf("Transfer failed: %v", err) // All operations rolled back
 // }
+```
+
+### Unit Tests with EXPECT()
+
+```go
+import (
+    "context"
+    "testing"
+
+    "github.com/jackc/pgx/v5/pgconn"
+    "github.com/stretchr/testify/require"
+    "github.com/virp/pgxtx"
+    "github.com/virp/pgxtx/mocks"
+)
+
+func TestUserRepositoryCreate(t *testing.T) {
+    ep := mocks.NewExecutorProvider(t)
+    exec := mocks.NewExecutor(t)
+    repo := NewUserRepository(ep)
+
+    ep.EXPECT().
+        GetExecutor(mocks.Anything).
+        Return(exec).
+        Once()
+
+    exec.EXPECT().
+        Exec(
+            mocks.Anything,
+            "INSERT INTO users (name, email, created_at) VALUES ($1, $2, NOW())",
+            "John",
+            "john@example.com",
+        ).
+        Return(pgconn.CommandTag{}, nil).
+        Once()
+
+    err := repo.Create(context.Background(), "John", "john@example.com")
+    require.NoError(t, err)
+}
+
+func TestTransferServiceTransfer(t *testing.T) {
+    tr := mocks.NewTxRunner(t)
+    svc := NewTransferService(tr, userRepo, accountRepo)
+
+    tr.EXPECT().
+        WithTx(mocks.Anything, mocks.Anything).
+        Run(func(ctx context.Context, fn pgxtx.TxFunc) {
+            require.NoError(t, fn(ctx))
+        }).
+        Return(nil).
+        Once()
+
+    require.NoError(t, svc.Transfer(context.Background(), 1, 2, amount))
+}
 ```
 
 ### Context Helpers
@@ -279,6 +332,9 @@ tm := pgxtx.NewTxManager(pool, pgxtx.WithTracer(tracer))
 
 - `TxManager` - Main transaction manager
 - `Executor` - Common interface for database operations (implemented by `pgx.Conn`, `pgx.Tx`, `pgxpool.Pool`)
+- `ExecutorProvider` - Minimal interface for repositories that only need `GetExecutor`
+- `TxRunner` - Minimal interface for services that open transactions
+- `Manager` - Combined interface for transaction execution and executor lookup
 - `RetryConfig` - Configuration for retry logic
 - `TxFunc` - Function type for transactional operations
 
