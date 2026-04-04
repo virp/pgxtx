@@ -269,6 +269,35 @@ func TestUserRepositoryCreate(t *testing.T) {
     require.NoError(t, err)
 }
 
+func TestUserRepositoryList(t *testing.T) {
+    ep := mocks.NewExecutorProvider(t)
+    exec := mocks.NewExecutor(t)
+    repo := NewUserRepository(ep)
+
+    rows := mocks.NewRows(t).
+        AddRow(1, "John", "john@example.com").
+        AddRow(2, "Jane", "jane@example.com")
+
+    ep.EXPECT().
+        GetExecutor(mocks.Anything).
+        Return(exec).
+        Once()
+
+    exec.EXPECT().
+        Query(
+            mocks.Anything,
+            "SELECT id, name, email FROM users ORDER BY id",
+        ).
+        Return(rows, nil).
+        Once()
+
+    users, err := repo.List(context.Background())
+    require.NoError(t, err)
+    require.Len(t, users, 2)
+    require.Equal(t, "John", users[0].Name)
+    require.Equal(t, "Jane", users[1].Name)
+}
+
 func TestTransferServiceTransfer(t *testing.T) {
     tr := mocks.NewTxRunner(t)
     svc := NewTransferService(tr, userRepo, accountRepo)
